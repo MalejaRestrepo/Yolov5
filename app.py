@@ -1,70 +1,68 @@
 import streamlit as st
-import torch
+from ultralytics import YOLO
 import numpy as np
-import pandas as pd
 import cv2
+import pandas as pd
 
-st.set_page_config(
-    page_title="🔍 Detección de Objetos YOLOv5 (Lite)",
-    page_icon="🧠",
-    layout="wide"
-)
+st.set_page_config(page_title="🔍 Detección de Objetos YOLOv8", page_icon="🧠", layout="wide")
 
-st.title("🔍 Detección de Objetos con YOLOv5")
+st.title("🔍 Detección de Objetos con YOLOv8 (Ultralytics)")
 st.markdown("""
-Esta app usa **YOLOv5** directamente desde Torch Hub, sin dependencias pesadas.  
-Puedes subir o capturar una imagen y detectar objetos en tiempo real. 💜
+Esta app usa **YOLOv8** para detectar objetos en imágenes o desde la cámara.  
+Es ligera, compatible con Streamlit Cloud y no requiere GPU. 💜
 """)
 
-# ---------------- CARGAR MODELO ----------------
+# Cargar modelo YOLOv8 preentrenado
 @st.cache_resource
 def load_model():
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
-    return model
+    return YOLO("yolov8n.pt")  # modelo más liviano
 
-with st.spinner("Cargando modelo YOLOv5..."):
+with st.spinner("Cargando modelo YOLOv8..."):
     model = load_model()
 
-# ---------------- PARÁMETROS ----------------
+# Sidebar con parámetros
 conf = st.sidebar.slider("Nivel de confianza", 0.0, 1.0, 0.25, 0.01)
-model.conf = conf
+st.sidebar.caption(f"Confianza actual: {conf:.2f}")
 
-# ---------------- IMAGEN ----------------
-option = st.radio("Selecciona una opción:", ["📤 Subir imagen", "📸 Usar cámara"])
+# Selector de modo
+modo = st.radio("Selecciona una opción:", ["📤 Subir imagen", "📸 Usar cámara"])
 
-if option == "📤 Subir imagen":
-    uploaded_file = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png"])
-    if uploaded_file:
-        bytes_data = uploaded_file.read()
+if modo == "📤 Subir imagen":
+    file = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png"])
+    if file:
+        bytes_data = file.read()
         np_img = np.frombuffer(bytes_data, np.uint8)
         image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-        results = model(image)
-        results.render()
-        st.image(image, channels="BGR", caption="Resultado YOLOv5", use_container_width=True)
-        st.success("✅ Detección completada.")
-        
-        # Mostrar tabla
-        df = results.pandas().xyxy[0]
-        st.dataframe(df[["name", "confidence"]])
-elif option == "📸 Usar cámara":
-    picture = st.camera_input("Toma una foto")
-    if picture:
-        bytes_data = picture.getvalue()
+        results = model.predict(image, conf=conf)
+        annotated = results[0].plot()
+        st.image(annotated, channels="BGR", caption="Resultado YOLOv8", use_container_width=True)
+
+        # Mostrar detecciones
+        boxes = results[0].boxes.data.cpu().numpy()
+        if len(boxes) > 0:
+            df = pd.DataFrame(boxes, columns=["x1", "y1", "x2", "y2", "confianza", "clase"])
+            df["nombre"] = [model.names[int(c)] for c in df["clase"]]
+            st.dataframe(df[["nombre", "confianza"]].round(2))
+        else:
+            st.info("No se detectaron objetos.")
+
+elif modo == "📸 Usar cámara":
+    foto = st.camera_input("Toma una foto con tu cámara")
+    if foto:
+        bytes_data = foto.getvalue()
         np_img = np.frombuffer(bytes_data, np.uint8)
         image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-        results = model(image)
-        results.render()
-        st.image(image, channels="BGR", caption="Resultado YOLOv5", use_container_width=True)
-        st.success("✅ Detección completada.")
-        
-        df = results.pandas().xyxy[0]
-        st.dataframe(df[["name", "confidence"]])
+        results = model.predict(image, conf=conf)
+        annotated = results[0].plot()
+        st.image(annotated, channels="BGR", caption="Resultado YOLOv8", use_container_width=True)
+
+        boxes = results[0].boxes.data.cpu().numpy()
+        if len(boxes) > 0:
+            df = pd.DataFrame(boxes, columns=["x1", "y1", "x2", "y2", "confianza", "clase"])
+            df["nombre"] = [model.names[int(c)] for c in df["clase"]]
+            st.dataframe(df[["nombre", "confianza"]].round(2))
+        else:
+            st.info("No se detectaron objetos.")
 
 st.markdown("---")
-st.caption("Desarrollado con 💜 usando Streamlit + YOLOv5 (Torch Hub)")
-
-# ---------------- PIE DE PÁGINA ----------------
-st.markdown("---")
-st.caption("""
-Desarrollado con 💜 usando Streamlit, YOLOv5 y PyTorch.
-""")
+st.caption("💜 Desarrollado con Streamlit + Ultralytics YOLOv8")
